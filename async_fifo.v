@@ -1,36 +1,41 @@
-// ==========================================================================
-// Async FIFO (single-module version)
-// Features: dual-clock, Gray-coded pointers, 2-FF sync, active-low resets
-// Params: DSIZE = data width, ASIZE = address bits (DEPTH = 2**ASIZE)
-// ==========================================================================
+// ============================================================================
+// Async FIFO (single-module, combinational read)
+// Features: Dual-clock, Gray-coded pointers, 2-FF synchronizers, active-low resets
+// Params : DSIZE = data width, ASIZE = address bits (DEPTH = 2**ASIZE)
+// ----------------------------------------------------------------------------
+// Write side:  wclk, wrst_n, winc, wdata -> wfull
+// Read side :  rclk, rrst_n, rinc       -> rdata (comb), rempty
+// ============================================================================
+`default_nettype none
+
 module async_fifo #(
   parameter integer DSIZE = 8,
   parameter integer ASIZE = 4
 )(
   // Write side
   input  wire                 wclk,
-  input  wire                 wrst_n,   // active-low
+  input  wire                 wrst_n,   // active-low async reset
   input  wire                 winc,
   input  wire [DSIZE-1:0]     wdata,
   output reg                  wfull,
 
   // Read side
   input  wire                 rclk,
-  input  wire                 rrst_n,   // active-low
+  input  wire                 rrst_n,   // active-low async reset
   input  wire                 rinc,
-  output reg  [DSIZE-1:0]     rdata,
+  output wire [DSIZE-1:0]     rdata,    // combinational read
   output reg                  rempty
 );
 
   localparam integer DEPTH = (1 << ASIZE);
 
   // =========================================================================
-  // Memory (simple dual-port: write @ wclk, read @ rclk)
+  // Memory (write @ wclk, combinational read)
   // =========================================================================
   reg [DSIZE-1:0] mem [0:DEPTH-1];
 
   // =========================================================================
-  // Binary and Gray pointers
+  // Binary & Gray pointers
   // =========================================================================
   reg [ASIZE:0] wptr_bin, wptr_bin_next;
   reg [ASIZE:0] rptr_bin, rptr_bin_next;
@@ -42,13 +47,13 @@ module async_fifo #(
   wire [ASIZE-1:0] raddr = rptr_bin[ASIZE-1:0];
 
   // Synchronized Gray pointers across domains
-  reg [ASIZE:0] wq1_rptr_gray, wq2_rptr_gray; // read ptr synced into write domain
-  reg [ASIZE:0] rq1_wptr_gray, rq2_wptr_gray; // write ptr synced into read domain
+  // (use ASYNC_REG attributes if your tool supports them)
+  (* ASYNC_REG = "TRUE" *) reg [ASIZE:0] wq1_rptr_gray, wq2_rptr_gray; // read ptr -> write clk domain
+  (* ASYNC_REG = "TRUE" *) reg [ASIZE:0] rq1_wptr_gray, rq2_wptr_gray; // write ptr -> read clk domain
 
   // =========================================================================
-  // Helper functions
+  // Helpers
   // =========================================================================
-  // Binary to Gray
   function [ASIZE:0] bin2gray(input [ASIZE:0] b);
     bin2gray = (b >> 1) ^ b;
   endfunction
@@ -66,7 +71,6 @@ module async_fifo #(
   // Full when next write Gray equals read Gray with MSBs inverted
   wire wfull_val = (wptr_gray_next == {~wq2_rptr_gray[ASIZE:ASIZE-1], wq2_rptr_gray[ASIZE-2:0]});
 
-  // Write pointer & full flag registers
   always @(posedge wclk or negedge wrst_n) begin
     if (!wrst_n) begin
       wptr_bin  <= '0;
@@ -79,7 +83,7 @@ module async_fifo #(
     end
   end
 
-  // Write pointer receives synchronized read pointer (Gray) from read domain
+  // Receive synchronized read pointer (Gray) into write domain
   always @(posedge wclk or negedge wrst_n) begin
     if (!wrst_n) begin
       {wq2_rptr_gray, wq1_rptr_gray} <= '0;
@@ -91,9 +95,7 @@ module async_fifo #(
 
   // Memory write
   always @(posedge wclk) begin
-    if (wpush) begin
-      mem[waddr] <= wdata;
-    end
+    if (wpush) mem[waddr] <= wdata;
   end
 
   // =========================================================================
@@ -109,23 +111,19 @@ module async_fifo #(
   // Empty when next read Gray equals synchronized write Gray
   wire rempty_val = (rptr_gray_next == rq2_wptr_gray);
 
-  // Read pointer & empty flag registers
   always @(posedge rclk or negedge rrst_n) begin
     if (!rrst_n) begin
       rptr_bin  <= '0;
       rptr_gray <= '0;
       rempty    <= 1'b1;
-      rdata     <= '0;
     end else begin
       rptr_bin  <= rptr_bin_next;
       rptr_gray <= rptr_gray_next;
       rempty    <= rempty_val;
-      // Synchronous read: register output on rclk
-      if (rpop) rdata <= mem[raddr];
     end
   end
 
-  // Read side receives synchronized write pointer (Gray)
+  // Receive synchronized write pointer (Gray) into read domain
   always @(posedge rclk or negedge rrst_n) begin
     if (!rrst_n) begin
       {rq2_wptr_gray, rq1_wptr_gray} <= '0;
@@ -135,4 +133,9 @@ module async_fifo #(
     end
   end
 
+  // Combinational read path
+  assign rdata = mem[raddr];
+
 endmodule
+
+`default_nettype wire
