@@ -33,12 +33,7 @@ A synthesizable, single-file **asynchronous FIFO** with:
 
 ---
 
-## Parameters
 
-- `DSIZE` *(default 8)* — data width  
-- `ASIZE` *(default 4)* — address bits ⇒ depth = `2**ASIZE`
-
----
 
 ## How it Works (brief)
 
@@ -46,27 +41,3 @@ A synthesizable, single-file **asynchronous FIFO** with:
 - Cross-domain communication uses **two-flip-flop synchronizers**.
 - **Full**: next write Gray equals read Gray with MSBs inverted.  
 - **Empty**: next read Gray equals synchronized write Gray.
-
----
-
-## Example Instantiation
-
-```verilog
-async_fifo #(
-  .DSIZE(32),
-  .ASIZE(5) // depth = 32
-) u_fifo (
-  // write
-  .wclk   (wclk),
-  .wrst_n (wrst_n),
-  .winc   (wvalid),
-  .wdata  (wdata),
-  .wfull  (wfull),
-
-  // read
-  .rclk   (rclk),
-  .rrst_n (rrst_n),
-  .rinc   (rready),
-  .rdata  (rdata),
-  .rempty (rempty)
-);
